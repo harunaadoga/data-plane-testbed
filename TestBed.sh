@@ -1,44 +1,40 @@
 #!/bin/bash
 
-#Install virtual switch and create bridge
+# Install virtual switch and create bridge
 sudo apt-get update
-sudo apt-get install opensvswitch-switch
-ovs-vsctl add-br nfvbridge
+sudo apt-get install -y openvswitch-switch
+BRIDGE=nfvbridge
+sudo ovs-vsctl add-br $BRIDGE
 
-#install tools
-sudo apt-get install vim net-tools iptable-services iproute iperf3 ethtool
+# Install needed tools
+sudo apt-get install -y vim net-tools iptables iproute2 iperf3 ethtool
 
-#Add and enable TUNTAP interfaces
-sudo ip tuntap add mode tap vport1
-sudo ip tuntap add mode tap vport2
-sudo ip tuntap add mode tap vport3
+# Add and enable TUNTAP interfaces
+for i in {1..3}; do
+  if sudo ip link show vport$i >/dev/null 2>&1; then
+    echo "vport$i already exists"
+  else
+    sudo ip tuntap add mode tap vport$i
+    sudo ip link set vport$i up
+  fi
+done
 
-ifconfig vport1 up
-ifconfig vport2 up
-ifconfig vport3 up
+# Remove IP address from physical interface
+sudo ip address flush dev eno1
 
-sudo ifconfig eno1 0 #drop IP
-sudo dhclient nfvbridge #for bridge to get to the internet
+# Enable bridge to get to the internet
+sudo dhclient $BRIDGE
 
-sudo ovs-vsctl add-port nfvbridge eno1 #replace eno1 with own interface
+# Add interfaces to the bridge
+sudo ovs-vsctl add-port $BRIDGE eno1
+for i in {1..3}; do
+  sudo ovs-vsctl add-port $BRIDGE vport$i
+done
 
-sudo ovs-vsctl add-port nfvbridge vport1
-sudo ovs-vsctl add-port nfvbridge vport2
-sudo ovs-vsctl add-port nfvbridge vport3
+# Set virtual interface speeds with ethtool
+for i in {1..3}; do
+  sudo ethtool -s vport$i autoneg on speed 1000 duplex full
+done
 
-#Set virtual interface speeds with ethtool
-sudo ethtool -s vport1 autoneg on speed 1000 duplex full
-sudo ethtool -s vport2 autoneg on speed 1000 duplex full
-sudo ethtool -s vport3 autoneg on speed 1000 duplex full
-
-echo 1 > /proc/sys/net/ipv4/ip_forward #enable ip forwarding
-
-
-
-
-
-
-
-
-
-
+# Enable IP forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
